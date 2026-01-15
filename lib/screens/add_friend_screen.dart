@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../models/friend.dart';
-import '../providers/friend_provider.dart';
-import '../utils/exceptions.dart';
+import '../repositories/friend_repository.dart';
+import '../viewmodels/friend_viewmodel.dart';
+import '../services/api_service.dart'; // Necesario para crear el repositorio si no se pasa
 
 class AddFriendScreen extends StatefulWidget {
-  const AddFriendScreen({super.key});
+  const AddFriendScreen({
+    super.key,
+    this.friendRepository, // Hacemos el repositorio opcional
+  });
+
+  final FriendRepository? friendRepository;
 
   @override
   State<AddFriendScreen> createState() => _AddFriendScreenState();
@@ -15,12 +20,22 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
-  bool _isLoading = false;
+  
+  late final FriendViewModel _viewModel;
+
+  @override
+  void initState() {
+    super.initState();
+    // Usamos el repositorio pasado o creamos uno nuevo si es necesario
+    final repo = widget.friendRepository ?? FriendRepository(service: ApiService());
+    _viewModel = FriendViewModel(friendRepository: repo);
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
+    _viewModel.dispose();
     super.dispose();
   }
 
@@ -62,23 +77,27 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
                 if (value == null || value.trim().isEmpty) {
                   return 'Ingresa un email';
                 }
-                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                    .hasMatch(value)) {
+                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
                   return 'Ingresa un email válido';
                 }
                 return null;
               },
             ),
             const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _isLoading ? null : _saveFriend,
-              child: _isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Guardar'),
+            ListenableBuilder(
+              listenable: _viewModel.addFriend,
+              builder: (context, child) {
+                return FilledButton(
+                  onPressed: _viewModel.addFriend.running ? null : _saveFriend,
+                  child: _viewModel.addFriend.running
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Guardar'),
+                );
+              },
             ),
           ],
         ),
@@ -91,41 +110,22 @@ class _AddFriendScreenState extends State<AddFriendScreen> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    // Ejecutar el comando del ViewModel
+    // Nota: El método _addFriend en el ViewModel actual solo toma el nombre (String),
+    // si quisieras pasar email deberías actualizar el ViewModel. 
+    // Por ahora usamos solo el nombre para que compile con tu ViewModel actual.
+    await _viewModel.addFriend.execute(_nameController.text.trim());
 
-    try {
-      final friend = Friend(
-        name: _nameController.text.trim(),
-        email: _emailController.text.trim(),
-      );
-
-      await context.read<FriendProvider>().addFriend(friend);
-
-      if (mounted) {
+    if (mounted) {
+      if (_viewModel.addFriend.completed) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Amigo agregado')),
         );
         Navigator.pop(context);
-      }
-    } on ValidationException catch (e) {
-      if (mounted) {
+      } else if (_viewModel.addFriend.error) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
+          SnackBar(content: Text(_viewModel.errorMessage ?? 'Error al agregar')),
         );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
       }
     }
   }

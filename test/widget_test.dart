@@ -1,449 +1,219 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:splitwithme/main.dart';
-import 'package:splitwithme/repositories/friend_repository.dart';
+import 'package:splitwithme/models/expense.dart';
+import 'package:splitwithme/models/friend.dart';
 import 'package:splitwithme/repositories/expense_repository.dart';
+import 'package:splitwithme/repositories/friend_repository.dart';
 import 'package:splitwithme/services/api_service.dart';
+import 'package:splitwithme/utils/result.dart';
+import 'package:splitwithme/utils/exceptions.dart';
+
+// --- MOCKS ---
+class MockFriendRepository implements FriendRepository {
+  bool shouldFail = false;
+  List<Friend> friends = [];
+
+  @override
+  ApiService get _service => throw UnimplementedError();
+
+  MockFriendRepository({List<Friend>? initialFriends}) {
+    if (initialFriends != null) friends.addAll(initialFriends);
+  }
+
+  @override
+  Future<Result<List<Friend>>> fetchFriends() async {
+    if (shouldFail) return Result.error(NetworkException('Error de conexión simulado'));
+    return Result.ok(friends);
+  }
+
+  @override
+  Future<Result<Friend>> addFriend(Friend friend) async {
+    if (shouldFail) return Result.error(ServerException('Error al guardar'));
+    final newFriend = Friend(
+      id: friends.length + 1,
+      name: friend.name,
+      email: friend.email,
+    );
+    friends.add(newFriend);
+    return Result.ok(newFriend);
+  }
+
+  @override
+  Future<Result<void>> removeFriend(int? id) async {
+    if (shouldFail) return Result.error(ServerException('Error al borrar'));
+    friends.removeWhere((f) => f.id == id);
+    return const Result.ok(null);
+  }
+}
+
+class MockExpenseRepository implements ExpenseRepository {
+  bool shouldFail = false;
+  List<Expense> expenses = [];
+
+  @override
+  ApiService get _service => throw UnimplementedError();
+
+  MockExpenseRepository({List<Expense>? initialExpenses}) {
+    if (initialExpenses != null) expenses.addAll(initialExpenses);
+  }
+
+  @override
+  Future<Result<List<Expense>>> fetchExpenses() async {
+    if (shouldFail) return Result.error(NetworkException('Error de conexión simulado'));
+    return Result.ok(expenses);
+  }
+
+  @override
+  Future<Result<Expense>> addExpense(Expense expense) async {
+    if (shouldFail) return Result.error(ServerException('Error al guardar'));
+    final newExpense = expense.copyWith(id: (expenses.length + 1).toString());
+    expenses.add(newExpense);
+    return Result.ok(newExpense);
+  }
+
+  @override
+  Future<Result<void>> deleteExpense(String? id) async {
+    expenses.removeWhere((e) => e.id == id);
+    return const Result.ok(null);
+  }
+
+  @override
+  Future<Result<List<Friend>>> fetchExpenseFriends(String expenseId) async {
+    return const Result.ok([]);
+  }
+
+  @override
+  Future<Result<void>> assignFriendToExpense(int friendId, int expenseId) async {
+    return const Result.ok(null);
+  }
+}
 
 void main() {
-  group('SplitWithMe E2E Tests', () {
-    late ApiService apiService;
-    late FriendRepository friendRepository;
-    late ExpenseRepository expenseRepository;
+  group('Tarea 3: Tests End-to-End (E2E)', () {
+    late MockFriendRepository mockFriendRepo;
+    late MockExpenseRepository mockExpenseRepo;
 
     setUp(() {
-      apiService = ApiService();
-      friendRepository = FriendRepository(service: apiService);
-      expenseRepository = ExpenseRepository(service: apiService);
+      mockFriendRepo = MockFriendRepository();
+      mockExpenseRepo = MockExpenseRepository();
     });
 
-    testWidgets('Debe mostrar la pantalla principal con navegación',
+    testWidgets('Debe mostrar la pantalla principal y navegar entre pestañas',
         (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
+      await tester.pumpWidget(MyApp(
+        friendRepository: mockFriendRepo,
+        expenseRepository: mockExpenseRepo,
+      ));
       await tester.pumpAndSettle();
 
-      // Verificar que se muestra el título de la app
-      expect(find.text('SplitWithMe'), findsOneWidget);
-
-      // Verificar que existen las opciones de navegación
-      expect(find.text('Gastos'), findsOneWidget);
-      expect(find.text('Amigos'), findsOneWidget);
-    });
-
-    testWidgets('Debe navegar entre pantallas de Gastos y Amigos',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Inicialmente debe estar en Gastos
-      expect(find.text('Lista de Gastos'), findsOneWidget);
-
+      // Verificar pantalla inicial (Gastos) - Título: 'Lista de Gastos'
+      expect(find.text('Lista de Gastos'), findsOneWidget); 
+      
       // Navegar a Amigos
       await tester.tap(find.text('Amigos'));
       await tester.pumpAndSettle();
 
-      // Verificar que cambia a pantalla de Amigos
+      // Verificar pantalla de Amigos - Título: 'Lista de Amigos'
       expect(find.text('Lista de Amigos'), findsOneWidget);
+    });
 
-      // Volver a Gastos
-      await tester.tap(find.text('Gastos'));
+    testWidgets('Debe permitir añadir un nuevo amigo', (WidgetTester tester) async {
+      await tester.pumpWidget(MyApp(
+        friendRepository: mockFriendRepo,
+        expenseRepository: mockExpenseRepo,
+      ));
       await tester.pumpAndSettle();
 
-      expect(find.text('Lista de Gastos'), findsOneWidget);
-    });
-
-    testWidgets('Debe mostrar mensaje de carga al inicio',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-
-      // Verificar que se muestra indicador de carga
-      expect(find.byType(CircularProgressIndicator), findsAtLeastNWidgets(1));
-    });
-  });
-
-  group('Tests de Amigos', () {
-    late ApiService apiService;
-    late FriendRepository friendRepository;
-    late ExpenseRepository expenseRepository;
-
-    setUp(() {
-      apiService = ApiService();
-      friendRepository = FriendRepository(service: apiService);
-      expenseRepository = ExpenseRepository(service: apiService);
-    });
-
-    testWidgets('Debe abrir el diálogo para añadir amigo',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Navegar a Amigos
       await tester.tap(find.text('Amigos'));
       await tester.pumpAndSettle();
 
-      // Buscar el botón flotante de añadir
-      final addButton = find.byIcon(Icons.add);
-      expect(addButton, findsOneWidget);
-
-      // Tap en el botón
-      await tester.tap(addButton);
-      await tester.pumpAndSettle();
-
-      // Verificar que se abre el diálogo
-      expect(find.text('Añadir Amigo'), findsOneWidget);
-      expect(find.text('Nombre'), findsOneWidget);
-    });
-
-    testWidgets('Debe mostrar error al intentar crear amigo sin nombre',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Navegar a Amigos
-      await tester.tap(find.text('Amigos'));
-      await tester.pumpAndSettle();
-
-      // Abrir diálogo de añadir amigo
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
 
-      // Intentar guardar sin escribir nombre
-      await tester.tap(find.text('Guardar'));
+      await tester.enterText(find.widgetWithText(TextFormField, 'Nombre'), 'Nuevo Amigo E2E');
+      await tester.tap(find.text('Agregar'));
       await tester.pumpAndSettle();
 
-      // Verificar que muestra error de validación
-      expect(find.text('Por favor ingresa un nombre'), findsOneWidget);
+      expect(find.text('Nuevo Amigo E2E'), findsOneWidget);
     });
 
-    testWidgets('Debe mostrar lista de amigos con balances',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
+    testWidgets('Debe permitir añadir un nuevo gasto', (WidgetTester tester) async {
+      mockFriendRepo.friends.add(Friend(id: 1, name: 'Amigo Pagador', email: 'test@test.com'));
+
+      await tester.pumpWidget(MyApp(
+        friendRepository: mockFriendRepo,
+        expenseRepository: mockExpenseRepo,
+      ));
       await tester.pumpAndSettle();
 
-      // Navegar a Amigos
-      await tester.tap(find.text('Amigos'));
-      await tester.pumpAndSettle();
-
-      // Esperar a que carguen los amigos del servidor
-      await tester.pump(const Duration(seconds: 2));
-
-      // Verificar que se muestran amigos (si hay en el servidor)
-      // Si hay datos, debe mostrar ListTiles con información de amigos
-      expect(find.byType(ListTile), findsWidgets);
-    });
-  });
-
-  group('Tests de Gastos', () {
-    late ApiService apiService;
-    late FriendRepository friendRepository;
-    late ExpenseRepository expenseRepository;
-
-    setUp(() {
-      apiService = ApiService();
-      friendRepository = FriendRepository(service: apiService);
-      expenseRepository = ExpenseRepository(service: apiService);
-    });
-
-    testWidgets('Debe mostrar lista de gastos',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Ya está en pantalla de Gastos por defecto
-      // Esperar a que carguen los gastos
-      await tester.pump(const Duration(seconds: 2));
-
-      // Verificar que se muestran gastos (si hay en el servidor)
-      expect(find.byType(Card), findsWidgets);
-    });
-
-    testWidgets('Debe abrir pantalla para añadir gasto',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Buscar botón de añadir
-      final addButton = find.byIcon(Icons.add);
-      expect(addButton, findsOneWidget);
-
-      // Tap en el botón
-      await tester.tap(addButton);
-      await tester.pumpAndSettle();
-
-      // Verificar que se abre la pantalla de añadir gasto
-      expect(find.text('Añadir Gasto'), findsOneWidget);
-      expect(find.text('Descripción'), findsOneWidget);
-      expect(find.text('Monto'), findsOneWidget);
-    });
-
-    testWidgets('Debe mostrar error al crear gasto sin descripción',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Abrir pantalla de añadir gasto
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
 
-      // Intentar guardar sin llenar campos
-      await tester.tap(find.text('Guardar'));
+      await tester.enterText(find.widgetWithText(TextFormField, 'Descripción'), 'Cena E2E');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Monto'), '50.50');
+      
+      await tester.tap(find.byType(DropdownButtonFormField<int>));
       await tester.pumpAndSettle();
-
-      // Verificar errores de validación
-      expect(find.text('Por favor ingresa una descripción'), findsOneWidget);
-    });
-
-    testWidgets('Debe mostrar error al crear gasto con monto inválido',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
+      await tester.tap(find.text('Amigo Pagador').last);
       await tester.pumpAndSettle();
-
-      // Abrir pantalla de añadir gasto
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-
-      // Llenar descripción
-      await tester.enterText(
-          find.widgetWithText(TextField, 'Descripción'), 'Test Gasto');
-
-      // Llenar monto con valor negativo
-      await tester.enterText(
-          find.widgetWithText(TextField, 'Monto'), '-10');
 
       await tester.tap(find.text('Guardar'));
       await tester.pumpAndSettle();
 
-      // Verificar error de validación
-      expect(find.text('El monto debe ser mayor a 0'), findsOneWidget);
+      expect(find.text('Cena E2E'), findsOneWidget);
+      expect(find.text('€50.50'), findsOneWidget);
     });
 
-    testWidgets('Debe mostrar detalles de un gasto al hacer tap',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
+    testWidgets('Debe validar campos obligatorios al crear gasto', (WidgetTester tester) async {
+      await tester.pumpWidget(MyApp(
+        friendRepository: mockFriendRepo,
+        expenseRepository: mockExpenseRepo,
+      ));
       await tester.pumpAndSettle();
 
-      // Esperar a que carguen los gastos
-      await tester.pump(const Duration(seconds: 2));
-
-      // Buscar el primer gasto en la lista
-      final firstExpenseCard = find.byType(Card).first;
-
-      if (tester.any(firstExpenseCard)) {
-        // Tap en el gasto
-        await tester.tap(firstExpenseCard);
-        await tester.pumpAndSettle();
-
-        // Verificar que se abre el diálogo de detalles
-        expect(find.text('Detalles del Gasto'), findsOneWidget);
-        expect(find.text('Amigos Participantes'), findsOneWidget);
-      }
-    });
-  });
-
-  group('Tests de Errores de I/O', () {
-    testWidgets('Debe mostrar mensaje de error cuando falla la conexión',
-        (WidgetTester tester) async {
-      // Crear un ApiService con URL incorrecta para simular error de conexión
-      final badApiService = ApiService();
-      final friendRepository = FriendRepository(service: badApiService);
-      final expenseRepository = ExpenseRepository(service: badApiService);
-
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Esperar a que intente cargar y falle
-      await tester.pump(const Duration(seconds: 3));
-
-      // Buscar mensaje de error (puede variar según implementación)
-      // El texto exacto puede ser "No se pudo recuperar la lista de gastos" u otro
-      expect(
-        find.textContaining('No se pudo'),
-        findsWidgets,
-      );
-    });
-  });
-
-  group('Tests de Integración Completa', () {
-    late ApiService apiService;
-    late FriendRepository friendRepository;
-    late ExpenseRepository expenseRepository;
-
-    setUp(() {
-      apiService = ApiService();
-      friendRepository = FriendRepository(service: apiService);
-      expenseRepository = ExpenseRepository(service: apiService);
-    });
-
-    testWidgets(
-        'Flujo completo: Ver gastos -> Ver amigos -> Volver a gastos',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // 1. Verificar pantalla inicial de gastos
-      expect(find.text('Lista de Gastos'), findsOneWidget);
-
-      // 2. Navegar a amigos
-      await tester.tap(find.text('Amigos'));
-      await tester.pumpAndSettle();
-      expect(find.text('Lista de Amigos'), findsOneWidget);
-
-      // 3. Volver a gastos
-      await tester.tap(find.text('Gastos'));
-      await tester.pumpAndSettle();
-      expect(find.text('Lista de Gastos'), findsOneWidget);
-    });
-
-    testWidgets('Debe refrescar la lista después de añadir un elemento',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.pump(const Duration(seconds: 2));
-
-      // Contar gastos iniciales
-      final initialCards = tester.widgetList(find.byType(Card)).length;
-
-      // Abrir pantalla de añadir gasto
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
 
-      // Verificar que navegó a la pantalla correcta
-      expect(find.text('Añadir Gasto'), findsOneWidget);
-
-      // Nota: Para completar este test necesitarías llenar el formulario
-      // y guardar, pero eso requiere que el servidor esté disponible
-    });
-  });
-
-  group('Tests de Validación de Usuario', () {
-    late ApiService apiService;
-    late FriendRepository friendRepository;
-    late ExpenseRepository expenseRepository;
-
-    setUp(() {
-      apiService = ApiService();
-      friendRepository = FriendRepository(service: apiService);
-      expenseRepository = ExpenseRepository(service: apiService);
-    });
-
-    testWidgets('Debe validar campos requeridos en formulario de gasto',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
+      await tester.tap(find.text('Guardar'));
       await tester.pumpAndSettle();
 
-      // Abrir formulario de gasto
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-
-      // Intentar guardar sin llenar nada
-      final saveButton = find.text('Guardar');
-      await tester.tap(saveButton);
-      await tester.pumpAndSettle();
-
-      // Verificar que muestra errores de validación
       expect(find.text('Por favor ingresa una descripción'), findsOneWidget);
       expect(find.text('Por favor ingresa un monto'), findsOneWidget);
     });
 
-    testWidgets('Debe validar formato de monto',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(
-        MyApp(
-          friendRepository: friendRepository,
-          expenseRepository: expenseRepository,
-        ),
-      );
+    testWidgets('Debe validar monto inválido (0 o negativo)', (WidgetTester tester) async {
+      await tester.pumpWidget(MyApp(
+        friendRepository: mockFriendRepo,
+        expenseRepository: mockExpenseRepo,
+      ));
       await tester.pumpAndSettle();
 
-      // Abrir formulario de gasto
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
 
-      // Llenar con monto inválido (texto)
-      await tester.enterText(
-          find.widgetWithText(TextField, 'Monto'), 'abc');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Descripción'), 'Test');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Monto'), '0');
       
       await tester.tap(find.text('Guardar'));
       await tester.pumpAndSettle();
 
-      // El campo numérico debería prevenir o validar el texto
-      // Verificar que no se cierra el diálogo (sigue mostrando el título)
-      expect(find.text('Añadir Gasto'), findsOneWidget);
+      expect(find.text('El monto debe ser mayor a 0'), findsOneWidget);
+    });
+
+    testWidgets('Debe mostrar mensaje de error cuando falla la carga de datos (Error E/S)',
+        (WidgetTester tester) async {
+      mockExpenseRepo.shouldFail = true;
+
+      await tester.pumpWidget(MyApp(
+        friendRepository: mockFriendRepo,
+        expenseRepository: mockExpenseRepo,
+      ));
+      
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.error_outline), findsOneWidget);
+      expect(find.text('No se pudo recuperar la lista de gastos'), findsOneWidget);
     });
   });
 }

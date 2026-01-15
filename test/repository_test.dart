@@ -19,23 +19,20 @@ void main() {
     test('fetchFriends debe retornar Result con lista de amigos', () async {
       final result = await repository.fetchFriends();
 
-      // Verificar que retorna un Result
       expect(result, isA<Result>());
 
-      // Si es exitoso, debe tener lista de amigos
       switch (result) {
         case Ok<List<Friend>>(:final value):
           expect(value, isA<List<Friend>>());
           print('[TEST] Amigos cargados: ${value.length}');
         case Error<List<Friend>>(:final error):
           print('[TEST] Error al cargar amigos: $error');
-          // No falla el test, solo lo registra
       }
     });
 
     test('addFriend debe crear un nuevo amigo', () async {
       final newFriend = Friend(
-        id: 0, // El servidor asignará el ID real
+        id: 0,
         name: 'Test Friend',
         email: 'test@example.com',
       );
@@ -48,12 +45,10 @@ void main() {
           expect(value.name, equals('Test Friend'));
         case Error<Friend>(:final error):
           print('[TEST] Error al crear amigo: $error');
-          // No falla el test si hay error de conexión
       }
     });
 
     test('removeFriend debe eliminar un amigo existente', () async {
-      // Primero obtener lista de amigos
       final fetchResult = await repository.fetchFriends();
 
       switch (fetchResult) {
@@ -114,15 +109,15 @@ void main() {
     });
 
     test('fetchExpenseFriends debe retornar amigos de un gasto', () async {
-      // Primero obtener un gasto existente
       final expensesResult = await repository.fetchExpenses();
 
       switch (expensesResult) {
         case Ok<List<Expense>>(:final value):
           if (value.isNotEmpty) {
             final firstExpense = value.first;
+            // CORRECCIÓN AQUÍ: Se añade '!' porque sabemos que el ID existe en el test
             final friendsResult =
-                await repository.fetchExpenseFriends(firstExpense.id);
+                await repository.fetchExpenseFriends(firstExpense.id!);
 
             expect(friendsResult, isA<Result>());
 
@@ -159,13 +154,11 @@ void main() {
 
   group('Tests de Manejo de Errores', () {
     test('Debe manejar error de conexión correctamente', () async {
-      // Crear ApiService con URL incorrecta
       final badApiService = ApiService();
       final repository = FriendRepository(service: badApiService);
 
       final result = await repository.fetchFriends();
 
-      // Debe retornar Error, no lanzar excepción
       expect(result, isA<Result>());
 
       switch (result) {
@@ -181,7 +174,6 @@ void main() {
       final apiService = ApiService();
       final repository = ExpenseRepository(service: apiService);
 
-      // Intentar obtener gasto con ID inexistente
       final result = await repository.fetchExpenseFriends('99999');
 
       switch (result) {
@@ -197,10 +189,8 @@ void main() {
       final apiService = ApiService();
       final repository = FriendRepository(service: apiService);
 
-      // Este test verifica que el parseo de JSON funciona correctamente
       final result = await repository.fetchFriends();
 
-      // No debe lanzar excepción durante el parseo
       expect(result, isA<Result>());
       print('[TEST] Parseo de datos completado sin excepciones');
     });
@@ -212,7 +202,6 @@ void main() {
       final expenseRepo = ExpenseRepository(service: apiService);
       final friendRepo = FriendRepository(service: apiService);
 
-      // Obtener un gasto y un amigo existentes
       final expensesResult = await expenseRepo.fetchExpenses();
       final friendsResult = await friendRepo.fetchFriends();
 
@@ -222,8 +211,9 @@ void main() {
         final friends = friendsResult.value;
 
         if (expenses.isNotEmpty && friends.isNotEmpty) {
-          final expenseId = int.parse(expenses.first.id);
-          final friendId = friends.first.id;
+          // CORRECCIÓN AQUÍ: Se añaden '!' porque sabemos que los IDs existen
+          final expenseId = int.parse(expenses.first.id!);
+          final friendId = friends.first.id!;
 
           final assignResult =
               await expenseRepo.assignFriendToExpense(friendId, expenseId);
